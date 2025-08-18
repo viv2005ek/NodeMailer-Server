@@ -1,51 +1,63 @@
 require('dotenv').config();
 const express = require('express');
-const { sendEmail } = require('./mailer');
 const multer = require('multer');
-const upload = multer();
+const { sendEmail } = require('./mailer');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024 // 25MB limit
+  }
+});
 
 const app = express();
 app.use(express.json());
 
-// Email API endpoint
-app.post('/send-email', upload.array('attachments'), async (req, res) => {
-    try {
-        const { to, subject, text, html } = req.body;
-        
-        // Process attachments if any
-        const attachments = req.files?.map(file => ({
-            filename: file.originalname,
-            content: file.buffer
-        })) || [];
-
-        await sendEmail({
-            to,
-            subject,
-            text,
-            html,
-            attachments
-        });
-
-        res.json({ success: true, message: 'Email sent successfully' });
-    } catch (error) {
-        console.error('Email sending failed:', error);
-        res.status(500).json({ success: false, message: 'Failed to send email' });
+// For JSON requests (confirmation email)
+app.post('/send-email', (req, res) => {
+  if (req.headers['content-type']?.includes('application/json')) {
+    return handleJsonEmail(req, res);
+  }
+  // Otherwise handle as multipart/form-data
+  upload.array('attachments')(req, res, err => {
+    if (err) {
+      return res.status(400).json({ success: false, message: 'File too large (max 25MB)' });
     }
+    handleFormEmail(req, res);
+  });
 });
-app.get('/test-email', async (req, res) => {
-    try {
-        await sendEmail({
-            to: 'indomateofficial@gmail.com',
-            subject: 'SMTP Test',
-            text: 'If you got this, your SMTP setup works!'
-        });
-        res.send('Test email sent!');
-    } catch (error) {
-        res.status(500).send('Error: ' + error.message);
-    }
-});
+
+async function handleFormEmail(req, res) {
+  try {
+    const { to, subject, text, html } = req.body;
+    
+    await sendEmail({
+      to: to || 'viv2005ek@gmail.com',
+      subject,
+      text,
+      html,
+      attachments: req.files?.map(file => ({
+        filename: file.originalname,
+        content: file.buffer
+      })) || []
+    });
+
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Email sending failed:', error);
+    res.status(500).json({ success: false, message: 'Failed to send email' });
+  }
+}
+
+async function handleJsonEmail(req, res) {
+  try {
+    const { to, subject, text, html } = req.body;
+    await sendEmail({ to, subject, text, html });
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Email sending failed:', error);
+    res.status(500).json({ success: false, message: 'Failed to send email' });
+  }
+}
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
