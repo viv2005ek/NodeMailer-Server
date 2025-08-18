@@ -14,11 +14,11 @@ const upload = multer({
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: "http://localhost:5173", // your React frontend port
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  origin: "*", // Allows all origins
+  methods: "*", // Allows all HTTP methods
+  allowedHeaders: "*", // Allows all headers
+  credentials: true // If you need to support credentials/cookies
 }));
-
 
 // For JSON requests (confirmation email)
 app.post('/send-email', (req, res) => {
