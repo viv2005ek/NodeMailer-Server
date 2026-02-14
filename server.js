@@ -44,7 +44,7 @@ const swaggerOptions = {
       schemas: {
         EmailRequest: {
           type: 'object',
-          required: ['subject'],
+          required: ['to', 'subject'],
           properties: {
             to: {
               type: 'string',
@@ -222,9 +222,23 @@ app.post('/send-email', (req, res) => {
 async function handleFormEmail(req, res) {
   try {
     const { to, subject, text, html } = req.body;
-    
+
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Recipient email address (to) is required'
+      });
+    }
+
+    if (!subject) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email subject is required'
+      });
+    }
+
     await sendEmail({
-      to: to || 'viv2005ek@gmail.com',
+      to,
       subject,
       text,
       html,
@@ -244,6 +258,21 @@ async function handleFormEmail(req, res) {
 async function handleJsonEmail(req, res) {
   try {
     const { to, subject, text, html } = req.body;
+
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        message: 'Recipient email address (to) is required'
+      });
+    }
+
+    if (!subject) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email subject is required'
+      });
+    }
+
     await sendEmail({ to, subject, text, html });
     res.json({ success: true, message: 'Email sent successfully' });
   } catch (error) {
