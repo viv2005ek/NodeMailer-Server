@@ -9,7 +9,7 @@ const { sendEmail } = require('./mailer');
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 25 * 1024 * 1024
+    fileSize: 25 * 1024 * 1024 // 25MB limit
   }
 });
 
@@ -21,6 +21,16 @@ app.use(cors({
   allowedHeaders: "*",
   credentials: true
 }));
+
+// Add this middleware to log all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    contentType: req.headers['content-type'],
+    body: req.body,
+    files: req.files?.length
+  });
+  next();
+});
 
 const swaggerOptions = {
   definition: {
@@ -79,6 +89,10 @@ const swaggerOptions = {
             message: {
               type: 'string',
               example: 'Email sent successfully'
+            },
+            messageId: {
+              type: 'string',
+              example: '<123456@example.com>'
             }
           }
         },
@@ -92,6 +106,10 @@ const swaggerOptions = {
             message: {
               type: 'string',
               example: 'Failed to send email'
+            },
+            error: {
+              type: 'string',
+              example: 'Detailed error message'
             }
           }
         }
@@ -208,12 +226,27 @@ app.get('/', (req, res) => {
  *         description: CORS preflight successful
  */
 app.post('/send-email', (req, res) => {
+  console.log('Received request with content-type:', req.headers['content-type']);
+  
   if (req.headers['content-type']?.includes('application/json')) {
     return handleJsonEmail(req, res);
   }
+  
+  // For multipart/form-data
   upload.array('attachments')(req, res, err => {
     if (err) {
-      return res.status(400).json({ success: false, message: 'File too large (max 25MB)' });
+      console.error('Multer error:', err);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'File too large (max 25MB)' 
+        });
+      }
+      return res.status(400).json({ 
+        success: false, 
+        message: 'File upload error',
+        error: err.message 
+      });
     }
     handleFormEmail(req, res);
   });
@@ -221,6 +254,15 @@ app.post('/send-email', (req, res) => {
 
 async function handleFormEmail(req, res) {
   try {
+    // console.log('Form data received:', {
+    //   body: req.body,
+    //   files: req.files?.map(f => ({
+    //     name: f.originalname,
+    //     size: f.size,
+    //     mimetype: f.mimetype
+    //   }))
+    // });
+
     const { to, subject, text, html } = req.body;
 
     if (!to) {
@@ -237,21 +279,37 @@ async function handleFormEmail(req, res) {
       });
     }
 
-    await sendEmail({
+    const attachments = req.files?.map(file => ({
+      filename: file.originalname,
+      content: file.buffer,
+      contentType: file.mimetype
+    })) || [];
+
+    console.log(`Sending email to: ${to} with ${attachments.length} attachments`);
+
+    const result = await sendEmail({
       to,
       subject,
       text,
       html,
-      attachments: req.files?.map(file => ({
-        filename: file.originalname,
-        content: file.buffer
-      })) || []
+      attachments
     });
 
-    res.json({ success: true, message: 'Email sent successfully' });
+    console.log('Email sent successfully:', result.messageId);
+
+    res.json({ 
+      success: true, 
+      message: 'Email sent successfully',
+      messageId: result.messageId 
+    });
   } catch (error) {
     console.error('Email sending failed:', error);
-    res.status(500).json({ success: false, message: 'Failed to send email' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send email',
+      error: error.message,
+      code: error.code
+    });
   }
 }
 
@@ -259,6 +317,8 @@ async function handleJsonEmail(req, res) {
   try {
     const { to, subject, text, html } = req.body;
 
+    console.log('JSON email request:', { to, subject });
+
     if (!to) {
       return res.status(400).json({
         success: false,
@@ -273,14 +333,33 @@ async function handleJsonEmail(req, res) {
       });
     }
 
-    await sendEmail({ to, subject, text, html });
-    res.json({ success: true, message: 'Email sent successfully' });
+    const result = await sendEmail({ to, subject, text, html });
+    
+    res.json({ 
+      success: true, 
+      message: 'Email sent successfully',
+      messageId: result.messageId 
+    });
   } catch (error) {
     console.error('Email sending failed:', error);
-    res.status(500).json({ success: false, message: 'Failed to send email' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send email',
+      error: error.message
+    });
   }
 }
+
 app.options("/send-email", cors());
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  // console.log('Environment check:', {
+  //   hasSMTPHost: !!process.env.SMTP_HOST,
+  //   hasSMTPPort: !!process.env.SMTP_PORT,
+  //   hasSMTPUser: !!process.env.SMTP_USER,
+  //   hasSMTPPass: !!process.env.SMTP_PASS,
+  //   hasDefaultFrom: !!process.env.DEFAULT_FROM
+  // });
+});
